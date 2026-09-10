@@ -1,0 +1,61 @@
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Poppins:wght@300;400;500;600;700;800&display=swap');
+@import 'tailwindcss';
+
+@theme {
+  --color-terracotta: #E8734A;
+  --color-terracotta-light: #F09474;
+  --color-terracotta-dark: #C85A31;
+  --color-mustard: #F2A950;
+  --color-mustard-light: #F7C87A;
+  --color-mustard-dark: #D4883A;
+  --color-coffee: #6B4226;
+  --color-coffee-light: #8B5E3C;
+  --color-coffee-lighter: #A67850;
+  --color-cream: #FBF3E9;
+  --color-cream-dark: #F5E6D3;
+  --color-cream-darker: #EDD8BC;
+  --color-sage: #8B9D77;
+  --color-sage-light: #A8BB92;
+  --color-sage-dark: #6B7D5A;
+  --color-alert: #C45C4C;
+  --color-alert-light: #F0CCC8;
+
+  --font-sans: 'Poppins', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Nunito', ui-sans-serif, system-ui, sans-serif;
+
+  --radius-card: 20px;
+  --radius-button: 14px;
+  --radius-pill: 99px;
+
+  --shadow-card: 0 4px 24px -4px rgba(107, 66, 38, 0.12);
+  --shadow-card-hover: 0 8px 32px -4px rgba(107, 66, 38, 0.2);
+  --shadow-button: 0 4px 16px -2px rgba(232, 115, 74, 0.4);
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-cream);
+  color: var(--color-coffee);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-cream-dark);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-cream-darker);
+  border-radius: 99px;
+}

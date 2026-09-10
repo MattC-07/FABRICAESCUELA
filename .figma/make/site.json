@@ -1,0 +1,10 @@
+{
+  "description": "Streamline your barber and salon appointments with an intuitive booking system designed for clients, stylists, and administrators, ensuring a seamless experience.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
