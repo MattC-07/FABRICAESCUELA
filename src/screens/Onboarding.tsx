@@ -1,7 +1,21 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { SplashIllustration } from '../illustrations';
 import { Button, Input, Card } from '../ui';
 import type { UserRole } from '../data';
+
+// Mock registered accounts — in production these would live in the backend
+const REGISTERED_ACCOUNTS = [
+  { email: 'admin@barberia.com',      password: 'demo1234', role: 'admin'   as UserRole },
+  { email: 'estilista@barberia.com',  password: 'demo1234', role: 'stylist' as UserRole },
+  { email: 'cliente@demo.com',        password: 'demo1234', role: 'client'  as UserRole },
+];
+const REGISTERED_EMAILS = REGISTERED_ACCOUNTS.map(a => a.email);
+
+function hasSpecialChar(s: string) {
+  return /[!@#$%^&*()\-_=+[\]{};:'",.<>/?\\|`~]/.test(s);
+}
+function hasNumber(s: string) { return /\d/.test(s); }
+function hasLetter(s: string) { return /[a-zA-Z]/.test(s); }
 
 // ─── SPLASH ────────────────────────────────────────────────────────────────────
 
@@ -47,8 +61,11 @@ export function SplashScreen({ onLogin, onRegister }: { onLogin: () => void; onR
         <span className="w-2 h-2 bg-[#EDD8BC] rounded-full" />
       </div>
 
-      {/* CTAs */}
-      <div className="px-6 pb-10 flex flex-col gap-3">
+      {/* Bottom wave decoration — behind the CTAs */}
+      <div className="absolute bottom-0 left-0 right-0 h-20 bg-[#F5E6D3] opacity-30 rounded-t-[60px] z-0" />
+
+      {/* CTAs — above the wave */}
+      <div className="relative z-10 px-6 pb-10 flex flex-col gap-3">
         <Button onClick={onRegister} variant="primary" size="lg" fullWidth>
           Crear cuenta gratis
         </Button>
@@ -56,9 +73,6 @@ export function SplashScreen({ onLogin, onRegister }: { onLogin: () => void; onR
           Ya tengo una cuenta
         </Button>
       </div>
-
-      {/* Bottom wave decoration */}
-      <div className="absolute bottom-0 left-0 right-0 h-20 bg-[#F5E6D3] opacity-30 rounded-t-[60px]" />
     </div>
   );
 }
@@ -76,19 +90,46 @@ export function LoginScreen({ onLogin, onRegister, onBack, onForgotPassword }: {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [blockSecondsLeft, setBlockSecondsLeft] = useState(0);
+
+  // Countdown timer while blocked
+  useEffect(() => {
+    if (!isBlocked) return;
+    const interval = setInterval(() => {
+      setBlockSecondsLeft(s => {
+        if (s <= 1) { setIsBlocked(false); setFailedAttempts(0); setError(''); clearInterval(interval); return 0; }
+        return s - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isBlocked]);
 
   const handleLogin = () => {
-    if (!email || !password) {
-      setError('Por favor completa todos los campos.');
-      return;
-    }
-    setError('');
+    if (isBlocked) return;
+    if (!email || !password) { setError('Por favor completa todos los campos.'); return; }
+    if (password.length < 8) { setError('La contraseña debe tener mínimo 8 caracteres.'); return; }
+
     setLoading(true);
     setTimeout(() => {
       setLoading(false);
-      if (email === 'admin@barberia.com') onLogin('admin');
-      else if (email === 'estilista@barberia.com') onLogin('stylist');
-      else onLogin('client');
+      const account = REGISTERED_ACCOUNTS.find(a => a.email === email && a.password === password);
+      if (account) {
+        setError('');
+        setFailedAttempts(0);
+        onLogin(account.role);
+      } else {
+        const next = failedAttempts + 1;
+        setFailedAttempts(next);
+        if (next >= 5) {
+          setIsBlocked(true);
+          setBlockSecondsLeft(600);
+          setError('Demasiados intentos fallidos. Cuenta temporalmente bloqueada por seguridad.');
+        } else {
+          setError(`Correo o contraseña incorrectos. Intento ${next} de 5.`);
+        }
+      }
     }, 900);
   };
 
@@ -151,6 +192,11 @@ export function LoginScreen({ onLogin, onRegister, onBack, onForgotPassword }: {
             {error && (
               <div className="bg-[#F8D7DA] border border-[#F0C0BE] rounded-xl p-3">
                 <p className="text-[#C45C4C] text-sm font-medium">⚠️ {error}</p>
+                {isBlocked && blockSecondsLeft > 0 && (
+                  <p className="text-[#C45C4C] text-xs mt-1">
+                    Podrás intentarlo en {Math.floor(blockSecondsLeft / 60)}:{String(blockSecondsLeft % 60).padStart(2, '0')} min.
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -167,7 +213,7 @@ export function LoginScreen({ onLogin, onRegister, onBack, onForgotPassword }: {
             ].map(item => (
               <button
                 key={item.role}
-                onClick={() => { setEmail(item.email); setPassword('demo123'); }}
+                onClick={() => { setEmail(item.email); setPassword('demo1234'); }}
                 className="text-left text-xs text-[#E8734A] font-semibold hover:underline"
               >
                 {item.role}: {item.email}
@@ -176,8 +222,8 @@ export function LoginScreen({ onLogin, onRegister, onBack, onForgotPassword }: {
           </div>
         </div>
 
-        <Button onClick={handleLogin} variant="primary" size="lg" fullWidth disabled={loading}>
-          {loading ? '⏳ Ingresando...' : 'Iniciar sesión'}
+        <Button onClick={handleLogin} variant="primary" size="lg" fullWidth disabled={loading || isBlocked}>
+          {loading ? '⏳ Ingresando...' : isBlocked ? '🔒 Bloqueado temporalmente' : 'Iniciar sesión'}
         </Button>
 
         <button
@@ -233,13 +279,24 @@ export function RegisterScreen({ onRegister, onLogin, onBack }: {
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
+  const [showToast, setShowToast] = useState(false);
 
   const validate = () => {
     const e: Record<string, string> = {};
     if (!name.trim()) e.name = 'El nombre es obligatorio';
-    if (!email.includes('@')) e.email = 'Correo electrónico inválido';
-    if (phone.length < 9) e.phone = 'Ingresa un número válido';
-    if (password.length < 6) e.password = 'Mínimo 6 caracteres';
+    if (!email.includes('@')) {
+      e.email = 'Correo electrónico inválido';
+    } else if (REGISTERED_EMAILS.includes(email.toLowerCase())) {
+      e.email = 'Este correo ya se encuentra registrado. Intenta iniciar sesión.';
+    }
+    if (phone.length < 9) e.phone = 'Ingresa un número válido (mínimo 9 dígitos)';
+    if (password.length < 8) {
+      e.password = 'Mínimo 8 caracteres';
+    } else if (!hasLetter(password) || !hasNumber(password)) {
+      e.password = 'Debe contener letras y números';
+    } else if (!hasSpecialChar(password)) {
+      e.password = 'Debe incluir al menos un símbolo (ej. @, #, !)';
+    }
     return e;
   };
 
@@ -248,7 +305,11 @@ export function RegisterScreen({ onRegister, onLogin, onBack }: {
     if (Object.keys(e).length > 0) { setErrors(e); return; }
     setErrors({});
     setLoading(true);
-    setTimeout(() => { setLoading(false); onRegister(); }, 1000);
+    setTimeout(() => {
+      setLoading(false);
+      setShowToast(true);
+      setTimeout(() => { setShowToast(false); onRegister(); }, 2000);
+    }, 1000);
   };
 
   return (
@@ -321,7 +382,7 @@ export function RegisterScreen({ onRegister, onLogin, onBack }: {
               onChange={setPassword}
               placeholder="••••••••"
               error={errors.password}
-              hint="Mínimo 6 caracteres"
+              hint="Mínimo 8 caracteres, con letras, números y un símbolo"
               icon={<span>🔒</span>}
             />
           </div>
@@ -349,6 +410,14 @@ export function RegisterScreen({ onRegister, onLogin, onBack }: {
           ¿Ya tienes cuenta? <span className="text-[#E8734A] font-bold">Inicia sesión</span>
         </Button>
       </div>
+
+      {/* Success toast — HU-01 */}
+      {showToast && (
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 px-5 py-3.5 bg-[#4A7C59] text-white rounded-2xl shadow-2xl flex items-center gap-2.5 font-semibold text-sm whitespace-nowrap">
+          <span className="text-lg">✅</span>
+          ¡Registro exitoso! Ya puedes iniciar sesión
+        </div>
+      )}
     </div>
   );
 }

@@ -36,17 +36,31 @@ export function ClientHome({ onBook, onViewService, userName = 'Juan' }: {
   return (
     <div className="flex flex-col h-full bg-[#FBF3E9] overflow-y-auto pb-20">
       {/* Header */}
-      <div className="bg-[#E8734A] pt-12 pb-8 px-6 relative overflow-hidden">
+      <div
+        className="bg-[#E8734A] pb-8 px-6 relative overflow-hidden"
+        style={{ paddingTop: 'max(3rem, calc(env(safe-area-inset-top, 0px) + 1rem))' }}
+      >
         <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/3 translate-x-1/4" />
         <div className="absolute bottom-0 left-0 w-20 h-20 bg-white/10 rounded-full translate-y-1/2 -translate-x-1/4" />
         <div className="relative z-10">
           <div className="flex items-center justify-between mb-4">
-            <div>
-              <p className="text-white/80 text-sm font-medium">¡Buenos días! 👋</p>
-              <h1 className="text-white font-black font-display text-2xl">{userName}</h1>
+            <div className="flex items-center gap-3 min-w-0">
+              {/* User avatar */}
+              <div className="w-11 h-11 bg-white/20 rounded-full flex items-center justify-center border-2 border-white/30 flex-shrink-0">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="white">
+                  <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v1a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-1c0-2.66-5.33-4-8-4z"/>
+                </svg>
+              </div>
+              <div className="min-w-0">
+                <p className="text-white/80 text-sm font-medium">¡Buenos días! 👋</p>
+                <h1 className="text-white font-black font-display text-xl leading-tight truncate">{userName}</h1>
+              </div>
             </div>
-            <div className="w-11 h-11 bg-white/20 rounded-2xl flex items-center justify-center">
-              <span className="text-2xl">🔔</span>
+            <div className="w-11 h-11 bg-white/20 rounded-2xl flex items-center justify-center flex-shrink-0 ml-2">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+              </svg>
             </div>
           </div>
 
@@ -319,6 +333,7 @@ export function ServiceCatalog({ onViewService, onBook, onBack }: {
           ))}
         </div>
       </div>
+
     </div>
   );
 }
@@ -359,7 +374,7 @@ export function ServiceDetail({ serviceId, onBook, onBack }: {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-5 py-5 pb-28">
+      <div className="flex-1 overflow-y-auto px-5 py-5 pb-24">
         <div className="flex items-start justify-between gap-3 mb-3">
           <div>
             <h1 className="text-2xl font-black text-[#6B4226] font-display">{service.name}</h1>
@@ -433,9 +448,7 @@ export function ServiceDetail({ serviceId, onBook, onBack }: {
             </div>
           </div>
         )}
-      </div>
 
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t-2 border-[#F5E6D3] p-5 pb-safe">
         <Button onClick={() => onBook(serviceId)} variant="primary" size="lg" fullWidth>
           Reservar {service.name} — {formatPrice(service.price)}
         </Button>
@@ -451,13 +464,26 @@ export function AdminServices({ onBack }: { onBack: () => void }) {
   const [newName, setNewName] = useState('');
   const [newPrice, setNewPrice] = useState('');
   const [newDuration, setNewDuration] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
+  const [deleteToast, setDeleteToast] = useState(false);
+
+  const visibleServices = SERVICES.filter(s => !deletedIds.has(s.id));
+
+  function confirmDelete() {
+    if (!deletingId) return;
+    setDeletedIds(prev => new Set([...prev, deletingId]));
+    setDeletingId(null);
+    setDeleteToast(true);
+    setTimeout(() => setDeleteToast(false), 2500);
+  }
 
   return (
     <div className="flex flex-col h-full bg-[#FBF3E9] overflow-y-auto">
       <div className="bg-white px-6 pt-8 pb-4 shadow-[0_2px_12px_rgba(107,66,38,0.06)]">
         <PageHeader
           title="Gestión de Servicios"
-          subtitle={`${SERVICES.length} servicios activos`}
+          subtitle={`${visibleServices.length} servicios activos`}
           action={
             <Button onClick={() => setShowAddForm(!showAddForm)} variant="primary" size="sm">
               + Agregar
@@ -491,7 +517,7 @@ export function AdminServices({ onBack }: { onBack: () => void }) {
 
         {/* Services list */}
         <div className="flex flex-col gap-3">
-          {SERVICES.map(service => (
+          {visibleServices.map(service => (
             <Card key={service.id} padding={false}>
               <div className="p-4 flex items-center gap-3">
                 <div className="w-12 h-12 bg-[#FBF3E9] rounded-2xl flex items-center justify-center text-xl flex-shrink-0">
@@ -511,7 +537,10 @@ export function AdminServices({ onBack }: { onBack: () => void }) {
                   <button className="w-8 h-8 rounded-xl bg-[#FBF3E9] hover:bg-[#F5E6D3] flex items-center justify-center text-[#A67850] text-sm transition-colors">
                     ✏️
                   </button>
-                  <button className="w-8 h-8 rounded-xl bg-[#FFF5F5] hover:bg-[#FFE8E8] flex items-center justify-center text-[#C45C4C] text-sm transition-colors">
+                  <button
+                    onClick={() => setDeletingId(service.id)}
+                    className="w-8 h-8 rounded-xl bg-[#FFF5F5] hover:bg-[#FFE8E8] flex items-center justify-center text-[#C45C4C] text-sm transition-colors"
+                  >
                     🗑
                   </button>
                 </div>
@@ -542,6 +571,42 @@ export function AdminServices({ onBack }: { onBack: () => void }) {
           ))}
         </div>
       </div>
+
+      {/* Delete confirmation modal */}
+      {deletingId && (() => {
+        const svc = SERVICES.find(s => s.id === deletingId);
+        if (!svc) return null;
+        return (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-5">
+            <div className="bg-white rounded-[24px] p-6 w-full max-w-sm shadow-2xl">
+              <div className="text-center mb-5">
+                <div className="w-16 h-16 bg-[#FFF5F5] rounded-full flex items-center justify-center mx-auto mb-3">
+                  <span className="text-3xl">🗑</span>
+                </div>
+                <h3 className="font-black text-[#6B4226] font-display text-xl mb-1">¿Desactivar servicio?</h3>
+                <p className="text-[#A67850] text-sm">
+                  <strong className="text-[#6B4226]">{svc.name}</strong> se ocultará del catálogo. Las citas activas no se verán afectadas.
+                </p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Button variant="danger" size="md" fullWidth onClick={confirmDelete}>
+                  Sí, desactivar
+                </Button>
+                <Button variant="ghost" size="md" fullWidth onClick={() => setDeletingId(null)}>
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Success toast */}
+      {deleteToast && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 bg-[#6B4226] text-white text-sm font-bold px-5 py-3 rounded-2xl shadow-xl">
+          Servicio desactivado correctamente
+        </div>
+      )}
     </div>
   );
 }

@@ -5,9 +5,10 @@ import { EmptyAppointmentsIllustration, MemphisStylistAvatar } from '../illustra
 
 // ─── MY APPOINTMENTS ───────────────────────────────────────────────────────────
 
-export function MyAppointments({ onBook, onViewDetail, onBack }: {
+export function MyAppointments({ onBook, onViewDetail, onCancel, onBack }: {
   onBook: () => void;
   onViewDetail: (id: string) => void;
+  onCancel?: (id: string) => void;
   onBack?: () => void;
 }) {
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
@@ -71,6 +72,7 @@ export function MyAppointments({ onBook, onViewDetail, onBack }: {
                 key={appointment.id}
                 appointment={appointment}
                 onClick={() => onViewDetail(appointment.id)}
+                onCancel={activeTab === 'upcoming' && onCancel ? () => onCancel(appointment.id) : undefined}
               />
             ))}
           </div>
@@ -82,7 +84,7 @@ export function MyAppointments({ onBook, onViewDetail, onBack }: {
 
 // ─── APPOINTMENT CARD ──────────────────────────────────────────────────────────
 
-function AppointmentCard({ appointment, onClick }: { appointment: Appointment; onClick: () => void }) {
+function AppointmentCard({ appointment, onClick, onCancel }: { appointment: Appointment; onClick: () => void; onCancel?: () => void; }) {
   const service = getService(appointment.serviceId);
   const stylist = getStylist(appointment.stylistId);
   if (!service || !stylist) return null;
@@ -94,7 +96,7 @@ function AppointmentCard({ appointment, onClick }: { appointment: Appointment; o
   const dayName = dateObj.toLocaleDateString('es-ES', { weekday: 'short' });
 
   return (
-    <Card onClick={onClick} padding={false}>
+    <Card onClick={onCancel ? undefined : onClick} padding={false}>
       <div className="p-4 flex items-start gap-3">
         {/* Date block */}
         <div className="flex-shrink-0 w-14 bg-[#FBF3E9] rounded-2xl flex flex-col items-center justify-center py-2 px-1">
@@ -122,6 +124,22 @@ function AppointmentCard({ appointment, onClick }: { appointment: Appointment; o
           </div>
         </div>
       </div>
+      {onCancel && (
+        <div className="px-4 pb-4 flex gap-2">
+          <button
+            onClick={e => { e.stopPropagation(); onClick(); }}
+            className="flex-1 py-2 rounded-[12px] bg-[#FBF3E9] text-[#6B4226] text-xs font-bold hover:bg-[#F5E6D3] transition-colors cursor-pointer"
+          >
+            Ver detalle →
+          </button>
+          <button
+            onClick={e => { e.stopPropagation(); onCancel(); }}
+            className="flex-1 py-2 rounded-[12px] bg-[#FFF5F5] text-[#C45C4C] text-xs font-bold hover:bg-[#FFE8E8] transition-colors cursor-pointer border border-[#F0C0BE]"
+          >
+            Cancelar cita
+          </button>
+        </div>
+      )}
     </Card>
   );
 }
@@ -171,6 +189,11 @@ export function AppointmentDetail({ appointmentId, onReschedule, onCancel, onReb
   });
 
   const isUpcoming = appointment.status === 'confirmed' || appointment.status === 'pending';
+
+  // HU-20: check if cancellation is within 60 minutes (late cancel restriction)
+  const appointmentDateTime = new Date(`${appointment.date}T${appointment.time}:00`);
+  const minutesUntil = (appointmentDateTime.getTime() - Date.now()) / 60000;
+  const isLateCancellation = minutesUntil < 60;
 
   return (
     <div className="flex flex-col h-full bg-[#FBF3E9]">
@@ -361,9 +384,17 @@ export function AppointmentDetail({ appointmentId, onReschedule, onCancel, onReb
             <Button onClick={onReschedule} variant="secondary" size="lg" fullWidth>
               📅 Reprogramar cita
             </Button>
-            <Button onClick={onCancel} variant="danger" size="md" fullWidth>
-              Cancelar cita
-            </Button>
+            {isLateCancellation ? (
+              <div className="bg-[#FFF5F5] border-2 border-[#F0C0BE] rounded-[14px] p-3 text-center">
+                <p className="text-[#C45C4C] text-xs font-semibold leading-relaxed">
+                  📞 Para cancelaciones de última hora, comunícate directamente por teléfono con la peluquería.
+                </p>
+              </div>
+            ) : (
+              <Button onClick={onCancel} variant="danger" size="md" fullWidth>
+                Cancelar cita
+              </Button>
+            )}
           </div>
         ) : appointment.status === 'completed' ? (
           <Button onClick={() => onRebook(appointment.serviceId)} variant="primary" size="lg" fullWidth>

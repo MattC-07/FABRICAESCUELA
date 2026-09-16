@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { APPOINTMENTS, STYLISTS, getService, getStylist, formatPrice, formatDuration, CATEGORY_CONFIG } from '../data';
 import { Card, StatusBadge, Button, PageHeader, StarRating } from '../ui';
 import { MemphisStylistAvatar } from '../illustrations';
@@ -64,6 +64,12 @@ export function StylistSchedule() {
   const days = Object.keys(SCHEDULE_DATA) as DayKey[];
   const [activeDay, setActiveDay] = useState<DayKey>('Fri');
   const [showBlockModal, setShowBlockModal] = useState(false);
+  const [completedEvents, setCompletedEvents] = useState<Set<string>>(new Set());
+
+  const eventKey = (day: string, idx: number) => `${day}-${idx}`;
+  const markComplete = useCallback((idx: number) => {
+    setCompletedEvents(prev => new Set(prev).add(eventKey(activeDay, idx)));
+  }, [activeDay]);
 
   const stylist = STYLISTS[0];
   const dayEvents = SCHEDULE_DATA[activeDay];
@@ -147,6 +153,7 @@ export function StylistSchedule() {
           <div className="flex flex-col gap-2">
             {dayEvents.map((event, i) => {
               const service = event.service ? getService(event.service) : null;
+              const isCompleted = completedEvents.has(eventKey(activeDay, i));
               return (
                 <div key={i} className={`flex gap-3 ${event.blocked ? 'opacity-70' : ''}`}>
                   <div className="flex flex-col items-center">
@@ -180,7 +187,10 @@ export function StylistSchedule() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-bold text-[#6B4226] text-sm">{event.client}</span>
-                              <StatusBadge status={event.status} />
+                              {isCompleted
+                                ? <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#EAF2E3] text-[#4A7C59]">✓ Completada</span>
+                                : <StatusBadge status={event.status} />
+                              }
                             </div>
                             {service && (
                               <div className="text-xs text-[#A67850] flex items-center gap-2">
@@ -192,6 +202,14 @@ export function StylistSchedule() {
                               </div>
                             )}
                           </div>
+                          {!event.blocked && !isCompleted && event.status === 'confirmed' && (
+                            <button
+                              onClick={() => markComplete(i)}
+                              className="flex-shrink-0 px-3 py-1.5 bg-[#EAF2E3] text-[#4A7C59] text-xs font-bold rounded-xl hover:bg-[#D4EBCA] transition-colors cursor-pointer"
+                            >
+                              ✓ Finalizar
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -279,15 +297,15 @@ export function StylistClients() {
                 {client.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-black text-[#6B4226] font-display">{client.name}</span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="font-black text-[#6B4226] font-display truncate">{client.name}</span>
                   {client.visits >= 20 && (
-                    <span className="text-xs font-black bg-[#FEF5E4] text-[#D4883A] px-1.5 py-0.5 rounded-full flex items-center gap-0.5 border border-[#F2A950]/40">
+                    <span className="text-xs font-black bg-[#FEF5E4] text-[#D4883A] px-1.5 py-0.5 rounded-full flex items-center gap-0.5 border border-[#F2A950]/40 shrink-0">
                       👑 VIP
                     </span>
                   )}
                 </div>
-                <div className="text-xs text-[#A67850]">Última visita: {client.lastService}</div>
+                <div className="text-xs text-[#A67850] truncate">Última: {client.lastService}</div>
               </div>
               <div className="text-right flex-shrink-0">
                 <div className="text-sm font-black text-[#E8734A]">{client.visits}</div>
@@ -326,14 +344,14 @@ export function StylistPerformance() {
   ];
 
   return (
-    <div className="flex-1 overflow-y-auto bg-[#FBF3E9] p-6">
-      <div className="mb-6">
+    <div className="flex-1 overflow-y-auto bg-[#FBF3E9] p-4 md:p-6">
+      <div className="mb-4 md:mb-6">
         <h2 className="text-xl font-black text-[#6B4226] font-display">Mi Desempeño</h2>
         <p className="text-sm text-[#A67850]">Estadísticas y reseñas de clientes</p>
       </div>
 
-      {/* Hero rating card */}
-      <Card className="mb-5 bg-[#E8734A] overflow-hidden relative">
+      {/* Hero rating card — plain div so bg-[#E8734A] is not overridden by Card's bg-white */}
+      <div className="mb-5 rounded-[20px] p-5 overflow-hidden relative shadow-[0_4px_24px_-4px_rgba(232,115,74,0.35)]" style={{ background: '#E8734A' }}>
         <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/3 translate-x-1/4" />
         <div className="relative z-10">
           <div className="flex items-center gap-3 mb-4">
@@ -360,7 +378,7 @@ export function StylistPerformance() {
             </div>
           </div>
         </div>
-      </Card>
+      </div>
 
       {/* Key metrics */}
       <div className="grid grid-cols-3 gap-3 mb-5">

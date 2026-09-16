@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router';
 import type { UserRole, BookingState } from './data';
+import { APPOINTMENTS } from './data';
 import { BottomNav, SideNav } from './ui';
 
 // Onboarding
@@ -20,6 +22,8 @@ import { AdminDashboard, AdminTeam, AdminReports } from './screens/Admin';
 // Stylist
 import { StylistSchedule, StylistClients, StylistPerformance } from './screens/Stylist';
 
+// ─── URL ↔ SCREEN MAPPING ─────────────────────────────────────────────────────
+
 type Screen =
   | 'splash' | 'login' | 'register' | 'role-select' | 'forgot-password'
   | 'client-home' | 'service-catalog' | 'service-detail'
@@ -32,6 +36,44 @@ type Screen =
 type ClientTab = 'home' | 'book' | 'appointments' | 'profile';
 type AdminTab = 'dashboard' | 'services' | 'team' | 'schedule' | 'clients' | 'reports';
 
+const SCREEN_TO_PATH: Record<Screen, string> = {
+  'splash':               '/',
+  'login':                '/login',
+  'forgot-password':      '/olvide-contrasena',
+  'register':             '/registro',
+  'role-select':          '/elegir-rol',
+  'client-home':          '/cliente/inicio',
+  'service-catalog':      '/cliente/servicios',
+  'service-detail':       '/cliente/servicios/detalle',
+  'book-1':               '/cliente/reservar',
+  'book-2':               '/cliente/reservar/estilista',
+  'book-3':               '/cliente/reservar/horario',
+  'book-4':               '/cliente/reservar/confirmar',
+  'book-success':         '/cliente/reservar/exito',
+  'my-appointments':      '/cliente/citas',
+  'appointment-detail':   '/cliente/citas/detalle',
+  'cancel-appointment':   '/cliente/citas/cancelar',
+  'profile':              '/cliente/perfil',
+  'admin-dashboard':      '/admin/dashboard',
+  'admin-services':       '/admin/servicios',
+  'admin-team':           '/admin/equipo',
+  'admin-reports':        '/admin/reportes',
+  'stylist-schedule':     '/estilista/mi-agenda',
+  'stylist-clients':      '/estilista/clientes',
+  'stylist-reports':      '/estilista/desempeno',
+};
+
+const PATH_TO_SCREEN: Record<string, Screen> = Object.fromEntries(
+  (Object.entries(SCREEN_TO_PATH) as [Screen, string][]).map(([s, p]) => [p, s])
+);
+
+// Admin clients reuses the stylist clients screen
+PATH_TO_SCREEN['/admin/clientes'] = 'stylist-clients';
+
+const PROTECTED_PREFIXES = ['/cliente', '/admin', '/estilista'];
+const SESSION_KEY_ROLE = 'bb_role';
+const SESSION_KEY_AUTH = 'bb_auth';
+
 const INITIAL_BOOKING: BookingState = {
   serviceId: null,
   stylistId: null,
@@ -39,22 +81,77 @@ const INITIAL_BOOKING: BookingState = {
   time: null,
 };
 
+// ─── APP ──────────────────────────────────────────────────────────────────────
+
 export default function App() {
-  const [screen, setScreen] = useState<Screen>('splash');
-  const [role, setRole] = useState<UserRole>('client');
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // Auth state — persisted to sessionStorage so F5 restores the session
+  const [isLoggedIn, setIsLoggedIn] = useState(() =>
+    sessionStorage.getItem(SESSION_KEY_AUTH) === 'true'
+  );
+  const [role, setRole] = useState<UserRole>(() =>
+    (sessionStorage.getItem(SESSION_KEY_ROLE) as UserRole) ?? 'client'
+  );
+
+  // Ephemeral state — lost on F5 (by design for multi-step flows)
   const [booking, setBooking] = useState<BookingState>(INITIAL_BOOKING);
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(null);
-  const [clientTab, setClientTab] = useState<ClientTab>('home');
-  const [adminTab, setAdminTab] = useState<AdminTab>('dashboard');
 
-  const nav = (s: Screen) => setScreen(s);
+  // Derive current screen from URL path
+  const screen: Screen = PATH_TO_SCREEN[location.pathname] ?? 'splash';
+
+  // Derive active bottom tab for client
+  const clientTab: ClientTab = (() => {
+    if (screen === 'client-home' || screen === 'service-catalog' || screen === 'service-detail') return 'home';
+    if (screen.startsWith('book-')) return 'book';
+    if (screen === 'my-appointments' || screen === 'appointment-detail' || screen === 'cancel-appointment') return 'appointments';
+    if (screen === 'profile') return 'profile';
+    return 'home';
+  })();
+
+  // Derive active tab for admin/stylist side nav
+  const activeAdminTab: AdminTab = (() => {
+    if (role === 'admin') {
+      if (screen === 'admin-services') return 'services';
+      if (screen === 'admin-team') return 'team';
+      if (screen === 'stylist-clients') return 'clients';
+      if (screen === 'admin-reports') return 'reports';
+      return 'dashboard';
+    }
+    if (screen === 'stylist-clients') return 'clients';
+    if (screen === 'stylist-reports') return 'reports';
+    return 'schedule';
+  })();
+
+  // ── Auth guard ──────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const isProtected = PROTECTED_PREFIXES.some(p => location.pathname.startsWith(p));
+    if (isProtected && !isLoggedIn) {
+      navigate('/login', { replace: true });
+    }
+  }, [location.pathname, isLoggedIn, navigate]);
+
+  // ── Navigation helpers ──────────────────────────────────────────────────────
+  const nav = (s: Screen) => navigate(SCREEN_TO_PATH[s]);
 
   const handleLogin = (r: UserRole) => {
     setRole(r);
-    if (r === 'admin') nav('admin-dashboard');
-    else if (r === 'stylist') nav('stylist-schedule');
-    else nav('client-home');
+    setIsLoggedIn(true);
+    sessionStorage.setItem(SESSION_KEY_ROLE, r);
+    sessionStorage.setItem(SESSION_KEY_AUTH, 'true');
+    if (r === 'admin') navigate('/admin/dashboard', { replace: true });
+    else if (r === 'stylist') navigate('/estilista/mi-agenda', { replace: true });
+    else navigate('/cliente/inicio', { replace: true });
+  };
+
+  const handleLogout = () => {
+    setIsLoggedIn(false);
+    sessionStorage.removeItem(SESSION_KEY_AUTH);
+    sessionStorage.removeItem(SESSION_KEY_ROLE);
+    navigate('/login', { replace: true });
   };
 
   const startBooking = (serviceId?: string) => {
@@ -65,11 +162,9 @@ export default function App() {
       setBooking(INITIAL_BOOKING);
       nav('book-1');
     }
-    setClientTab('book');
   };
 
   const handleClientTab = (tab: ClientTab) => {
-    setClientTab(tab);
     if (tab === 'home') nav('client-home');
     else if (tab === 'book') { setBooking(INITIAL_BOOKING); nav('book-1'); }
     else if (tab === 'appointments') nav('my-appointments');
@@ -77,11 +172,9 @@ export default function App() {
   };
 
   const handleAdminTab = (tab: AdminTab) => {
-    setAdminTab(tab);
     if (tab === 'dashboard') nav('admin-dashboard');
     else if (tab === 'services') nav('admin-services');
     else if (tab === 'team') nav('admin-team');
-    else if (tab === 'schedule') nav('stylist-schedule');
     else if (tab === 'clients') nav('stylist-clients');
     else if (tab === 'reports') nav('admin-reports');
   };
@@ -93,20 +186,29 @@ export default function App() {
   };
 
   // ── Determine layout ──────────────────────────────────────────────────────
-  const isAdminOrStylist = role !== 'client' && !['splash', 'login', 'register', 'role-select', 'forgot-password'].includes(screen);
-  const isClientWithNav = role === 'client' && !['splash', 'login', 'register', 'book-success', 'forgot-password'].includes(screen) &&
+  const onboardingScreens: Screen[] = ['splash', 'login', 'register', 'role-select', 'forgot-password'];
+  const isAdminOrStylist = role !== 'client' && isLoggedIn && !onboardingScreens.includes(screen);
+  const isClientWithNav = role === 'client' && isLoggedIn &&
+    !onboardingScreens.includes(screen) &&
+    screen !== 'book-success' &&
     !screen.startsWith('book-');
-  const inBookingFlow = screen.startsWith('book-');
 
   // ── Render screen ─────────────────────────────────────────────────────────
   const renderScreen = () => {
     switch (screen) {
-      // ── Onboarding ────────────────────────────────────────────────────────
+      // ── Onboarding ──────────────────────────────────────────────────────────
       case 'splash':
         return <SplashScreen onLogin={() => nav('login')} onRegister={() => nav('register')} />;
 
       case 'login':
-        return <LoginScreen onLogin={handleLogin} onRegister={() => nav('register')} onBack={() => nav('splash')} onForgotPassword={() => nav('forgot-password')} />;
+        return (
+          <LoginScreen
+            onLogin={handleLogin}
+            onRegister={() => nav('register')}
+            onBack={() => nav('splash')}
+            onForgotPassword={() => nav('forgot-password')}
+          />
+        );
 
       case 'forgot-password':
         return <ForgotPasswordScreen onBack={() => nav('login')} />;
@@ -114,21 +216,22 @@ export default function App() {
       case 'register':
         return (
           <RegisterScreen
-            onRegister={() => { setRole('client'); nav('client-home'); }}
+            onRegister={() => handleLogin('client')}
             onLogin={() => nav('login')}
             onBack={() => nav('splash')}
           />
         );
 
       case 'role-select':
-        return <RoleSelectScreen onSelect={r => { setRole(r); handleLogin(r); }} />;
+        return <RoleSelectScreen onSelect={r => handleLogin(r)} />;
 
-      // ── Client: Home / Catalog / Detail ────────────────────────────────────
+      // ── Client: Home / Catalog / Detail ──────────────────────────────────────
       case 'client-home':
         return (
           <ClientHome
             onBook={id => startBooking(id)}
             onViewService={id => { setSelectedServiceId(id); nav('service-detail'); }}
+            userName="Juan García"
           />
         );
 
@@ -148,9 +251,9 @@ export default function App() {
             onBook={id => startBooking(id)}
             onBack={() => nav('service-catalog')}
           />
-        ) : null;
+        ) : (() => { nav('service-catalog'); return null; })();
 
-      // ── Booking Flow ────────────────────────────────────────────────────────
+      // ── Booking Flow ──────────────────────────────────────────────────────────
       case 'book-1':
         return (
           <BookStep1
@@ -160,48 +263,55 @@ export default function App() {
         );
 
       case 'book-2':
-        return booking.serviceId ? (
+        if (!booking.serviceId) { nav('book-1'); return null; }
+        return (
           <BookStep2
             serviceId={booking.serviceId}
             onNext={id => { setBooking(b => ({ ...b, stylistId: id })); nav('book-3'); }}
             onBack={() => nav('book-1')}
           />
-        ) : null;
+        );
 
       case 'book-3':
-        return (booking.serviceId && booking.stylistId) ? (
+        if (!booking.serviceId || !booking.stylistId) { nav('book-1'); return null; }
+        return (
           <BookStep3
             serviceId={booking.serviceId}
             stylistId={booking.stylistId}
             onNext={(date, time) => { setBooking(b => ({ ...b, date, time })); nav('book-4'); }}
             onBack={() => nav('book-2')}
           />
-        ) : null;
+        );
 
       case 'book-4':
-        return (booking.serviceId && booking.stylistId && booking.date && booking.time) ? (
+        if (!booking.serviceId || !booking.stylistId || !booking.date || !booking.time) {
+          nav('book-1'); return null;
+        }
+        return (
           <BookStep4
             booking={booking}
             onConfirm={() => nav('book-success')}
             onBack={() => nav('book-3')}
           />
-        ) : null;
+        );
 
       case 'book-success':
-        return (booking.serviceId && booking.date && booking.time) ? (
+        if (!booking.serviceId) { nav('client-home'); return null; }
+        return (
           <BookSuccess
             booking={booking}
-            onGoToAppointments={() => { nav('my-appointments'); setClientTab('appointments'); }}
-            onGoHome={() => { nav('client-home'); setClientTab('home'); }}
+            onGoToAppointments={() => nav('my-appointments')}
+            onGoHome={() => nav('client-home')}
           />
-        ) : null;
+        );
 
-      // ── My Appointments ─────────────────────────────────────────────────────
+      // ── My Appointments ────────────────────────────────────────────────────
       case 'my-appointments':
         return (
           <MyAppointments
             onBook={() => startBooking()}
             onViewDetail={id => { setSelectedAppointmentId(id); nav('appointment-detail'); }}
+            onCancel={id => { setSelectedAppointmentId(id); nav('cancel-appointment'); }}
           />
         );
 
@@ -214,18 +324,18 @@ export default function App() {
             onRebook={id => startBooking(id)}
             onBack={() => nav('my-appointments')}
           />
-        ) : null;
+        ) : (() => { nav('my-appointments'); return null; })();
 
       case 'cancel-appointment':
         return selectedAppointmentId ? (
           <CancelAppointment
             appointmentId={selectedAppointmentId}
             onConfirm={() => nav('my-appointments')}
-            onBack={() => nav('appointment-detail')}
+            onBack={() => nav('my-appointments')}
           />
-        ) : null;
+        ) : (() => { nav('my-appointments'); return null; })();
 
-      // ── Admin ───────────────────────────────────────────────────────────────
+      // ── Admin ──────────────────────────────────────────────────────────────
       case 'admin-dashboard':
         return <AdminDashboard />;
 
@@ -238,7 +348,7 @@ export default function App() {
       case 'admin-reports':
         return <AdminReports />;
 
-      // ── Stylist ─────────────────────────────────────────────────────────────
+      // ── Stylist ────────────────────────────────────────────────────────────
       case 'stylist-schedule':
         return <StylistSchedule />;
 
@@ -248,9 +358,15 @@ export default function App() {
       case 'stylist-reports':
         return <StylistPerformance />;
 
-      // ── Profile ─────────────────────────────────────────────────────────────
+      // ── Profile ────────────────────────────────────────────────────────────
       case 'profile':
-        return <ProfileScreen role={role} onChangeRole={() => nav('role-select')} onLogout={() => nav('splash')} />;
+        return (
+          <ProfileScreen
+            role={role}
+            onChangeRole={() => nav('role-select')}
+            onLogout={handleLogout}
+          />
+        );
 
       default:
         return <SplashScreen onLogin={() => nav('login')} onRegister={() => nav('register')} />;
@@ -259,32 +375,23 @@ export default function App() {
 
   // ── Layout wrappers ────────────────────────────────────────────────────────
 
-  // Admin / Stylist: side-nav layout
   if (isAdminOrStylist) {
-    const activeAdminTab = ((): AdminTab => {
-      if (screen === 'admin-services') return 'services';
-      if (screen === 'admin-team') return 'team';
-      if (screen === 'admin-reports' || screen === 'stylist-reports') return 'reports';
-      if (screen === 'stylist-schedule') return 'schedule';
-      if (screen === 'stylist-clients') return 'clients';
-      return 'dashboard';
-    })();
-
     return (
       <div className="flex h-full bg-[#FBF3E9]">
         <SideNav
           active={activeAdminTab}
           role={role as 'admin' | 'stylist'}
           onNavigate={role === 'admin' ? handleAdminTab : handleStylistTab}
+          onLogout={handleLogout}
         />
-        <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Content: on mobile add top/bottom padding for fixed mobile bars */}
+        <div className="flex-1 flex flex-col overflow-hidden pt-14 pb-16 md:pt-0 md:pb-0">
           {renderScreen()}
         </div>
       </div>
     );
   }
 
-  // Client with bottom nav
   if (isClientWithNav) {
     return (
       <div className="flex flex-col h-full bg-[#FBF3E9]">
@@ -296,7 +403,6 @@ export default function App() {
     );
   }
 
-  // Full-screen (onboarding, booking flow, success)
   return (
     <div className="h-full bg-[#FBF3E9] overflow-hidden">
       {renderScreen()}
@@ -307,7 +413,7 @@ export default function App() {
 // ─── PROFILE SCREEN ────────────────────────────────────────────────────────────
 
 const MOCK_POINTS = 1240;
-const MOCK_TOTAL_VISITS = 5; // change to 22 to see VIP state
+const MOCK_TOTAL_VISITS = 5;
 const IS_VIP = MOCK_TOTAL_VISITS >= 20;
 
 const REWARDS = [
@@ -326,6 +432,36 @@ function ProfileScreen({ role, onChangeRole, onLogout }: {
   const [referralCopied, setReferralCopied] = useState(false);
   const [activeReward, setActiveReward] = useState<number | null>(null);
   const [rewardRedeemed, setRewardRedeemed] = useState<number | null>(null);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editName, setEditName] = useState('Juan García');
+  const [editPhone, setEditPhone] = useState('+34 600 123 456');
+  const [profileName, setProfileName] = useState('Juan García');
+  const [profilePhone, setProfilePhone] = useState('+34 600 123 456');
+  const [editSaved, setEditSaved] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deletePasswordError, setDeletePasswordError] = useState('');
+  const [deleteSuccess, setDeleteSuccess] = useState(false);
+
+  const hasActiveAppointments = APPOINTMENTS.some(
+    a => a.status === 'confirmed' || a.status === 'pending'
+  );
+
+  const handleRequestDelete = () => {
+    setDeletePassword('');
+    setDeletePasswordError('');
+    setShowDeleteModal(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (deletePassword.length < 8) {
+      setDeletePasswordError('Ingresa tu contraseña (mínimo 8 caracteres).');
+      return;
+    }
+    setDeleteSuccess(true);
+    setTimeout(() => onLogout(), 2200);
+  };
 
   const handleCopyCode = () => {
     setReferralCopied(true);
@@ -345,12 +481,12 @@ function ProfileScreen({ role, onChangeRole, onLogout }: {
               👤
             </div>
             {IS_VIP && (
-              <div className="absolute -top-1 -right-1 w-7 h-7 bg-[#F2A950] rounded-full flex items-center justify-center shadow-lg border-2 border-white" title="Cliente VIP">
+              <div className="absolute -top-1 -right-1 w-7 h-7 bg-[#F2A950] rounded-full flex items-center justify-center shadow-lg border-2 border-white">
                 <span className="text-sm">👑</span>
               </div>
             )}
           </div>
-          <h2 className="text-white font-black font-display text-xl">Juan García</h2>
+          <h2 className="text-white font-black font-display text-xl">{profileName}</h2>
           <p className="text-white/80 text-sm">juan@correo.com</p>
           <div className="flex items-center gap-2 mt-2">
             <span className="bg-white/20 text-white text-xs px-3 py-1 rounded-full font-bold capitalize">
@@ -366,7 +502,6 @@ function ProfileScreen({ role, onChangeRole, onLogout }: {
       </div>
 
       <div className="px-5 py-5">
-        {/* Client stats */}
         {role === 'client' && (
           <div className="grid grid-cols-3 gap-3 mb-5">
             {[
@@ -382,7 +517,6 @@ function ProfileScreen({ role, onChangeRole, onLogout }: {
           </div>
         )}
 
-        {/* VIP progress (client only, not yet VIP) */}
         {role === 'client' && !IS_VIP && (
           <div className="bg-white rounded-[20px] p-4 mb-5 shadow-[0_4px_20px_rgba(107,66,38,0.1)]">
             <div className="flex items-center gap-2 mb-2">
@@ -402,10 +536,8 @@ function ProfileScreen({ role, onChangeRole, onLogout }: {
           </div>
         )}
 
-        {/* Rewards section (client only) */}
         {role === 'client' && (
           <div className="bg-white rounded-[20px] shadow-[0_4px_20px_rgba(107,66,38,0.1)] overflow-hidden mb-5">
-            {/* Points header */}
             <div className="bg-gradient-to-r from-[#6B4226] to-[#8B5E3C] p-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -422,8 +554,6 @@ function ProfileScreen({ role, onChangeRole, onLogout }: {
                 <span>Gana puntos por cada servicio y al referir amigos</span>
               </div>
             </div>
-
-            {/* Reward cards */}
             <div className="p-4">
               <h4 className="font-black text-[#6B4226] font-display text-sm mb-3">Canjear recompensas</h4>
               <div className="flex flex-col gap-2">
@@ -431,7 +561,9 @@ function ProfileScreen({ role, onChangeRole, onLogout }: {
                   const canRedeem = MOCK_POINTS >= reward.points;
                   const isRedeemed = rewardRedeemed === reward.id;
                   return (
-                    <div key={reward.id} className={`flex items-center gap-3 p-3 rounded-2xl transition-all ${canRedeem && !isRedeemed ? 'bg-[#FBF3E9] hover:bg-[#F5E6D3] cursor-pointer' : 'bg-[#F5E6D3] opacity-60'}`}
+                    <div
+                      key={reward.id}
+                      className={`flex items-center gap-3 p-3 rounded-2xl transition-all ${canRedeem && !isRedeemed ? 'bg-[#FBF3E9] hover:bg-[#F5E6D3] cursor-pointer' : 'bg-[#F5E6D3] opacity-60'}`}
                       onClick={() => canRedeem && !isRedeemed && setActiveReward(reward.id)}
                     >
                       <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-xl flex-shrink-0 shadow-sm">
@@ -458,12 +590,11 @@ function ProfileScreen({ role, onChangeRole, onLogout }: {
           </div>
         )}
 
-        {/* Referral section (client only) */}
         {role === 'client' && (
           <div className="bg-white rounded-[20px] shadow-[0_4px_20px_rgba(107,66,38,0.1)] overflow-hidden mb-5">
             <button
               onClick={() => setShowReferral(!showReferral)}
-              className="flex items-center gap-3 w-full px-4 py-3.5 text-left hover:bg-[#FBF3E9] transition-colors"
+              className="flex items-center gap-3 w-full px-4 py-3.5 text-left hover:bg-[#FBF3E9] transition-colors cursor-pointer"
             >
               <span className="w-8 h-8 rounded-xl bg-[#FEF5E4] flex items-center justify-center text-base flex-shrink-0">🎁</span>
               <div className="flex-1">
@@ -479,16 +610,16 @@ function ProfileScreen({ role, onChangeRole, onLogout }: {
                   <span className="flex-1 text-center font-black text-[#E8734A] text-lg tracking-widest">{referralCode}</span>
                   <button
                     onClick={handleCopyCode}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${referralCopied ? 'bg-[#EAF2E3] text-[#4A7C59]' : 'bg-[#E8734A] text-white'}`}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${referralCopied ? 'bg-[#EAF2E3] text-[#4A7C59]' : 'bg-[#E8734A] text-white'}`}
                   >
                     {referralCopied ? '✓ Copiado' : 'Copiar'}
                   </button>
                 </div>
                 <div className="flex gap-2">
-                  <button className="flex-1 py-2.5 rounded-2xl bg-[#E8734A] text-white text-xs font-bold hover:bg-[#C85A31] transition-colors">
+                  <button className="flex-1 py-2.5 rounded-2xl bg-[#E8734A] text-white text-xs font-bold hover:bg-[#C85A31] transition-colors cursor-pointer">
                     📤 Compartir código
                   </button>
-                  <button className="flex-1 py-2.5 rounded-2xl bg-[#25D366] text-white text-xs font-bold hover:opacity-90 transition-opacity">
+                  <button className="flex-1 py-2.5 rounded-2xl bg-[#25D366] text-white text-xs font-bold hover:opacity-90 transition-opacity cursor-pointer">
                     💬 WhatsApp
                   </button>
                 </div>
@@ -497,10 +628,9 @@ function ProfileScreen({ role, onChangeRole, onLogout }: {
           </div>
         )}
 
-        {/* Menu items */}
         <div className="bg-white rounded-[20px] shadow-[0_4px_20px_rgba(107,66,38,0.1)] overflow-hidden mb-4">
           {[
-            { icon: '✏️', label: 'Editar perfil' },
+            { icon: '✏️', label: 'Editar perfil', action: () => { setEditName(profileName); setEditPhone(profilePhone); setEditSaved(false); setShowEditModal(true); } },
             { icon: '🔔', label: 'Notificaciones' },
             { icon: '🔒', label: 'Cambiar contraseña' },
             { icon: '📍', label: 'Dirección favorita' },
@@ -508,7 +638,8 @@ function ProfileScreen({ role, onChangeRole, onLogout }: {
           ].map((item, i) => (
             <button
               key={i}
-              className="flex items-center gap-3 w-full px-4 py-3.5 text-left hover:bg-[#FBF3E9] transition-colors border-b border-[#F5E6D3] last:border-0"
+              onClick={'action' in item ? item.action : undefined}
+              className="flex items-center gap-3 w-full px-4 py-3.5 text-left hover:bg-[#FBF3E9] transition-colors border-b border-[#F5E6D3] last:border-0 cursor-pointer"
             >
               <span className="w-8 h-8 rounded-xl bg-[#FBF3E9] flex items-center justify-center text-base flex-shrink-0">{item.icon}</span>
               <span className="font-semibold text-[#6B4226] text-sm flex-1">{item.label}</span>
@@ -517,11 +648,10 @@ function ProfileScreen({ role, onChangeRole, onLogout }: {
           ))}
         </div>
 
-        {/* Admin shortcut */}
         <div className="bg-white rounded-[20px] shadow-[0_4px_20px_rgba(107,66,38,0.1)] overflow-hidden mb-4">
           <button
             onClick={onChangeRole}
-            className="flex items-center gap-3 w-full px-4 py-3.5 text-left hover:bg-[#FBF3E9] transition-colors"
+            className="flex items-center gap-3 w-full px-4 py-3.5 text-left hover:bg-[#FBF3E9] transition-colors cursor-pointer"
           >
             <span className="w-8 h-8 rounded-xl bg-[#FBF3E9] flex items-center justify-center">🔐</span>
             <span className="font-semibold text-[#6B4226] text-sm flex-1">Cambiar rol (demo)</span>
@@ -530,11 +660,20 @@ function ProfileScreen({ role, onChangeRole, onLogout }: {
         </div>
 
         <button
-          onClick={onLogout}
-          className="w-full flex items-center justify-center gap-2 py-3.5 rounded-[20px] bg-[#FFF5F5] border-2 border-[#F0C0BE] text-[#C45C4C] font-bold text-sm hover:bg-[#FFE8E8] transition-colors"
+          onClick={() => setShowLogoutModal(true)}
+          className="w-full flex items-center justify-center gap-2 py-3.5 rounded-[20px] bg-[#FFF5F5] border-2 border-[#F0C0BE] text-[#C45C4C] font-bold text-sm hover:bg-[#FFE8E8] transition-colors cursor-pointer mb-3"
         >
           🚪 Cerrar sesión
         </button>
+
+        {role === 'client' && (
+          <button
+            onClick={handleRequestDelete}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-[20px] text-[#A67850] font-semibold text-xs hover:text-[#C45C4C] transition-colors cursor-pointer"
+          >
+            🗑 Solicitar eliminación de cuenta
+          </button>
+        )}
       </div>
 
       {/* Reward redeem confirmation modal */}
@@ -558,13 +697,13 @@ function ProfileScreen({ role, onChangeRole, onLogout }: {
                   <div className="flex flex-col gap-2">
                     <button
                       onClick={() => { setRewardRedeemed(reward.id); setActiveReward(null); }}
-                      className="w-full py-3.5 bg-[#E8734A] text-white font-black rounded-[14px] hover:bg-[#C85A31] transition-colors shadow-[0_4px_16px_rgba(232,115,74,0.4)]"
+                      className="w-full py-3.5 bg-[#E8734A] text-white font-black rounded-[14px] hover:bg-[#C85A31] transition-colors shadow-[0_4px_16px_rgba(232,115,74,0.4)] cursor-pointer"
                     >
                       ✅ Confirmar canje
                     </button>
                     <button
                       onClick={() => setActiveReward(null)}
-                      className="w-full py-3 text-[#A67850] font-semibold text-sm"
+                      className="w-full py-3 text-[#A67850] font-semibold text-sm cursor-pointer"
                     >
                       Cancelar
                     </button>
@@ -572,6 +711,166 @@ function ProfileScreen({ role, onChangeRole, onLogout }: {
                 </>
               );
             })()}
+          </div>
+        </div>
+      )}
+
+      {/* Edit profile modal — HU-04 */}
+      {showEditModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-5">
+          <div className="bg-white rounded-[24px] p-6 w-full max-w-sm shadow-2xl">
+            {editSaved ? (
+              <div className="text-center py-4">
+                <div className="text-4xl mb-3">✅</div>
+                <h3 className="font-black text-[#6B4226] font-display text-xl">Perfil actualizado</h3>
+                <p className="text-[#A67850] text-sm mt-1">Tus datos han sido guardados correctamente.</p>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="w-10 h-10 bg-[#FBF3E9] rounded-2xl flex items-center justify-center text-xl">✏️</div>
+                  <h3 className="font-black text-[#6B4226] font-display text-xl">Editar perfil</h3>
+                </div>
+                <div className="flex flex-col gap-4 mb-5">
+                  <div>
+                    <label className="text-sm font-semibold text-[#6B4226] block mb-1.5">Nombre completo</label>
+                    <input
+                      type="text"
+                      value={editName}
+                      onChange={e => setEditName(e.target.value)}
+                      className="w-full rounded-[14px] border-2 border-[#EDD8BC] focus:border-[#E8734A] bg-white px-4 py-3 text-[#6B4226] font-medium text-sm outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-semibold text-[#6B4226] block mb-1.5">Teléfono móvil</label>
+                    <input
+                      type="tel"
+                      value={editPhone}
+                      onChange={e => setEditPhone(e.target.value)}
+                      className="w-full rounded-[14px] border-2 border-[#EDD8BC] focus:border-[#E8734A] bg-white px-4 py-3 text-[#6B4226] font-medium text-sm outline-none"
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <button
+                    onClick={() => {
+                      setProfileName(editName);
+                      setProfilePhone(editPhone);
+                      setEditSaved(true);
+                      setTimeout(() => setShowEditModal(false), 1500);
+                    }}
+                    className="w-full py-3.5 bg-[#E8734A] text-white font-black rounded-[14px] hover:bg-[#C85A31] transition-colors cursor-pointer shadow-[0_4px_16px_rgba(232,115,74,0.4)]"
+                  >
+                    Guardar cambios
+                  </button>
+                  <button
+                    onClick={() => setShowEditModal(false)}
+                    className="w-full py-3 text-[#A67850] font-semibold text-sm cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Delete account modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-5">
+          <div className="bg-white rounded-[24px] p-6 w-full max-w-sm shadow-2xl">
+            {deleteSuccess ? (
+              <div className="text-center py-4">
+                <div className="text-5xl mb-3">✅</div>
+                <h3 className="font-black text-[#6B4226] font-display text-xl mb-2">Cuenta eliminada</h3>
+                <p className="text-[#A67850] text-sm">Tus datos han sido anonimizados. Cerrando sesión...</p>
+              </div>
+            ) : hasActiveAppointments ? (
+              <>
+                <div className="text-center mb-5">
+                  <div className="text-4xl mb-3">⚠️</div>
+                  <h3 className="font-black text-[#6B4226] font-display text-xl">No puedes eliminar tu cuenta</h3>
+                  <p className="text-[#A67850] text-sm mt-3 leading-relaxed">
+                    Tienes citas activas pendientes. Cancela tus citas primero antes de solicitar la eliminación de tu cuenta.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowDeleteModal(false)}
+                  className="w-full py-3.5 bg-[#E8734A] text-white font-black rounded-[14px] hover:bg-[#C85A31] transition-colors cursor-pointer"
+                >
+                  Entendido
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="text-center mb-5">
+                  <div className="w-14 h-14 bg-[#FFF5F5] rounded-full flex items-center justify-center text-2xl mx-auto mb-3">
+                    🗑
+                  </div>
+                  <h3 className="font-black text-[#6B4226] font-display text-xl">Eliminar cuenta</h3>
+                  <p className="text-[#A67850] text-sm mt-2 leading-relaxed">
+                    Esta acción es irreversible. Tu correo y teléfono serán anonimizados. El historial de citas se conservará de forma anónima.
+                  </p>
+                </div>
+                <div className="mb-4">
+                  <label className="text-sm font-semibold text-[#6B4226] block mb-1.5">
+                    Confirma tu contraseña
+                  </label>
+                  <input
+                    type="password"
+                    value={deletePassword}
+                    onChange={e => { setDeletePassword(e.target.value); setDeletePasswordError(''); }}
+                    placeholder="Tu contraseña actual"
+                    className={`w-full rounded-[14px] border-2 bg-white px-4 py-3 text-[#6B4226] placeholder-[#C8A88A] font-medium text-sm outline-none transition-all ${deletePasswordError ? 'border-[#C45C4C] bg-[#FFF5F5]' : 'border-[#EDD8BC] focus:border-[#E8734A]'}`}
+                  />
+                  {deletePasswordError && (
+                    <p className="text-xs font-medium text-[#C45C4C] mt-1">{deletePasswordError}</p>
+                  )}
+                </div>
+                <div className="flex flex-col gap-2">
+                  <button
+                    onClick={handleConfirmDelete}
+                    className="w-full py-3.5 bg-[#C45C4C] text-white font-black rounded-[14px] hover:bg-[#A84A3A] transition-colors cursor-pointer"
+                  >
+                    Sí, eliminar mi cuenta
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteModal(false)}
+                    className="w-full py-3 text-[#A67850] font-semibold text-sm cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Logout confirmation modal */}
+      {showLogoutModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-5">
+          <div className="bg-white rounded-[24px] p-6 w-full max-w-sm shadow-2xl">
+            <div className="text-center mb-5">
+              <div className="text-4xl mb-3">🚪</div>
+              <h3 className="font-black text-[#6B4226] font-display text-xl">¿Cerrar sesión?</h3>
+              <p className="text-[#A67850] text-sm mt-2">Tendrás que volver a iniciar sesión para acceder a tu cuenta.</p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={onLogout}
+                className="w-full py-3.5 bg-[#C45C4C] text-white font-black rounded-[14px] hover:bg-[#A84A3A] transition-colors cursor-pointer"
+              >
+                Sí, cerrar sesión
+              </button>
+              <button
+                onClick={() => setShowLogoutModal(false)}
+                className="w-full py-3 text-[#A67850] font-semibold text-sm cursor-pointer"
+              >
+                Cancelar
+              </button>
+            </div>
           </div>
         </div>
       )}

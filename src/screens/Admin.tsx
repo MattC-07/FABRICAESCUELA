@@ -26,7 +26,7 @@ function MetricCard({ value, label, color, icon, trend }: {
       <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-xl mb-3`} style={{ background: color + '20' }}>
         {icon}
       </div>
-      <div className="text-2xl font-black font-display" style={{ color }}>{value}</div>
+      <div className="text-xl md:text-2xl font-black font-display" style={{ color }}>{value}</div>
       <div className="text-xs font-semibold text-[#A67850] mt-0.5">{label}</div>
       {trend && <div className="text-[10px] text-[#8B9D77] font-semibold mt-1">{trend}</div>}
     </div>
@@ -104,10 +104,10 @@ export function AdminDashboard() {
   const recentAppointments = APPOINTMENTS.slice(0, 3);
 
   return (
-    <div className="flex-1 overflow-y-auto bg-[#FBF3E9] p-6">
+    <div className="flex-1 overflow-y-auto bg-[#FBF3E9] p-4 md:p-6">
       {/* Greeting */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-black text-[#6B4226] font-display">Dashboard</h1>
+      <div className="mb-4 md:mb-6">
+        <h1 className="text-xl md:text-2xl font-black text-[#6B4226] font-display">Dashboard</h1>
         <p className="text-[#A67850] text-sm">Hoy, viernes 29 de agosto de 2026</p>
       </div>
 
@@ -159,11 +159,11 @@ export function AdminDashboard() {
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-white/10 rounded-xl p-3">
             <div className="text-white/60 text-xs font-semibold">Citas completadas</div>
-            <div className="text-white font-black text-xl">{METRICS.monthAppointments}</div>
+            <div className="text-white font-black text-lg md:text-xl">{METRICS.monthAppointments}</div>
           </div>
           <div className="bg-white/10 rounded-xl p-3">
             <div className="text-white/60 text-xs font-semibold">Ingresos totales</div>
-            <div className="text-[#F2A950] font-black text-xl">${METRICS.monthRevenue}</div>
+            <div className="text-[#F2A950] font-black text-lg md:text-xl">${METRICS.monthRevenue}</div>
           </div>
         </div>
         <div className="mt-3 bg-white/10 rounded-xl p-3 flex items-center justify-between">
@@ -255,150 +255,369 @@ const STYLIST_SCHEDULES: Record<string, { day: string; slots: string }[]> = {
 // Pending appointments per stylist (simulated)
 const STYLIST_PENDING: Record<string, number> = { st1: 3, st2: 1, st3: 0, st4: 2 };
 
+type AddedStylist = {
+  id: string;
+  name: string;
+  specialty: string;
+  phone: string;
+  email: string;
+  color: string;
+  serviceIds: string[];
+  schedule: { day: string; slots: string }[];
+  rating: number;
+  reviewCount: number;
+};
+
+const NEW_STYLIST_COLORS = ['#7B5EA7', '#2E86AB', '#C97D4E', '#4A7C59', '#C45C4C'];
+const ALL_DAYS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+
 export function AdminTeam({ onBack }: { onBack: () => void }) {
+  // ── invite form state ──
   const [showInvite, setShowInvite] = useState(false);
+  const [inviteStep, setInviteStep] = useState<'form' | 'success'>('form');
+  const [inviteName, setInviteName] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
+  const [invitePhone, setInvitePhone] = useState('');
+  const [inviteSpecialty, setInviteSpecialty] = useState('');
+  const [inviteServiceIds, setInviteServiceIds] = useState<string[]>([]);
+  const [inviteSchedule, setInviteSchedule] = useState<{ day: string; slots: string }[]>(
+    ALL_DAYS.map(d => ({ day: d, slots: 'Libre' }))
+  );
   const [inviteLoading, setInviteLoading] = useState(false);
-  const [inviteSent, setInviteSent] = useState(false);
+
+  // ── team state ──
+  const [addedStylists, setAddedStylists] = useState<AddedStylist[]>([]);
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
+
+  // ── delete modal ──
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+
+  // ── schedule drawer ──
   const [scheduleTarget, setScheduleTarget] = useState<string | null>(null);
 
-  const stylistStats = [
-    { id: 'st1', appointments: 48, revenue: 1840, rating: 4.9 },
-    { id: 'st2', appointments: 42, revenue: 1580, rating: 4.8 },
-    { id: 'st3', appointments: 38, revenue: 1960, rating: 4.9 },
-    { id: 'st4', appointments: 35, revenue: 1420, rating: 4.7 },
-  ];
+  // ── edit modal ──
+  const [editTarget, setEditTarget] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editSpecialty, setEditSpecialty] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editServiceIds, setEditServiceIds] = useState<string[]>([]);
+  const [editSchedule, setEditSchedule] = useState<{ day: string; slots: string }[]>([]);
+  const [overrides, setOverrides] = useState<Record<string, { name: string; specialty: string; phone: string; serviceIds: string[]; schedule: { day: string; slots: string }[] }>>({});
+  const [editSaved, setEditSaved] = useState(false);
 
-  const handleInvite = () => {
-    if (!inviteEmail) return;
-    setInviteLoading(true);
-    setTimeout(() => { setInviteLoading(false); setInviteSent(true); }, 1000);
+  const defaultStats = { appointments: 0, revenue: 0, rating: 0 };
+  const stylistStats: Record<string, { appointments: number; revenue: number; rating: number }> = {
+    st1: { appointments: 48, revenue: 1840, rating: 4.9 },
+    st2: { appointments: 42, revenue: 1580, rating: 4.8 },
+    st3: { appointments: 38, revenue: 1960, rating: 4.9 },
+    st4: { appointments: 35, revenue: 1420, rating: 4.7 },
   };
 
-  const deleteTargetStylist = STYLISTS.find(s => s.id === deleteTarget);
-  const scheduleTargetStylist = STYLISTS.find(s => s.id === scheduleTarget);
+  const visibleBase = STYLISTS.filter(s => !deletedIds.has(s.id));
+  const visibleAdded = addedStylists.filter(s => !deletedIds.has(s.id));
+  const totalActive = visibleBase.length + visibleAdded.length;
+
+  // ── helpers ──
+
+  function resetInviteForm() {
+    setInviteName(''); setInviteEmail(''); setInvitePhone('');
+    setInviteSpecialty(''); setInviteServiceIds([]);
+    setInviteSchedule(ALL_DAYS.map(d => ({ day: d, slots: 'Libre' })));
+    setInviteStep('form');
+  }
+
+  function handleInvite() {
+    if (!inviteName.trim() || !inviteEmail.trim()) return;
+    setInviteLoading(true);
+    setTimeout(() => {
+      const newId = `added-${Date.now()}`;
+      const color = NEW_STYLIST_COLORS[addedStylists.length % NEW_STYLIST_COLORS.length];
+      setAddedStylists(prev => [...prev, {
+        id: newId,
+        name: inviteName.trim(),
+        specialty: inviteSpecialty.trim() || 'Estilista',
+        phone: invitePhone.trim(),
+        email: inviteEmail.trim(),
+        color,
+        serviceIds: inviteServiceIds,
+        schedule: inviteSchedule.filter(e => e.slots !== 'Libre' && e.slots.trim() !== ''),
+        rating: 0,
+        reviewCount: 0,
+      }]);
+      setInviteLoading(false);
+      setInviteStep('success');
+    }, 900);
+  }
+
+  function openEdit(id: string) {
+    const base = STYLISTS.find(s => s.id === id);
+    const added = addedStylists.find(s => s.id === id);
+    const ov = overrides[id];
+    if (!base && !added) return;
+    const src = base ?? added!;
+    setEditTarget(id);
+    setEditName(ov?.name ?? src.name);
+    setEditSpecialty(ov?.specialty ?? src.specialty);
+    setEditPhone(ov?.phone ?? (base ? (STYLIST_PHONES[id] ?? '') : (added?.phone ?? '')));
+    setEditServiceIds(ov?.serviceIds ?? src.serviceIds);
+    const defaultSched = base ? (STYLIST_SCHEDULES[id] ?? []) : (added?.schedule ?? []);
+    setEditSchedule((ov?.schedule ?? defaultSched).map(e => ({ ...e })));
+  }
+
+  function saveEdit() {
+    if (!editTarget) return;
+    setOverrides(prev => ({ ...prev, [editTarget]: { name: editName, specialty: editSpecialty, phone: editPhone, serviceIds: editServiceIds, schedule: editSchedule } }));
+    setEditTarget(null);
+    setEditSaved(true);
+    setTimeout(() => setEditSaved(false), 2500);
+  }
+
+  function getDisplay(id: string, base: { name: string; specialty: string; serviceIds: string[] } | AddedStylist) {
+    const ov = overrides[id];
+    return {
+      name: ov?.name ?? base.name,
+      specialty: ov?.specialty ?? base.specialty,
+      phone: ov?.phone ?? (STYLIST_PHONES[id] ?? (base as AddedStylist).phone ?? ''),
+      serviceIds: ov?.serviceIds ?? base.serviceIds,
+      schedule: ov?.schedule ?? (STYLIST_SCHEDULES[id] ?? (base as AddedStylist).schedule ?? []),
+    };
+  }
+
+  const deleteTargetName = (() => {
+    const ov = overrides[deleteTarget ?? ''];
+    const base = STYLISTS.find(s => s.id === deleteTarget);
+    const added = addedStylists.find(s => s.id === deleteTarget);
+    return ov?.name ?? base?.name ?? added?.name ?? '';
+  })();
   const pendingCount = deleteTarget ? (STYLIST_PENDING[deleteTarget] ?? 0) : 0;
+  const scheduleTargetDisplay = scheduleTarget ? getDisplay(scheduleTarget, STYLISTS.find(s => s.id === scheduleTarget) ?? addedStylists.find(s => s.id === scheduleTarget)!) : null;
+  const scheduleTargetColor = STYLISTS.find(s => s.id === scheduleTarget)?.color ?? addedStylists.find(s => s.id === scheduleTarget)?.color ?? '#E8734A';
+  const editTargetColor = STYLISTS.find(s => s.id === editTarget)?.color ?? addedStylists.find(s => s.id === editTarget)?.color ?? '#E8734A';
+
+  function toggleInviteService(sid: string) {
+    setInviteServiceIds(prev => prev.includes(sid) ? prev.filter(x => x !== sid) : [...prev, sid]);
+  }
+  function toggleEditService(sid: string) {
+    setEditServiceIds(prev => prev.includes(sid) ? prev.filter(x => x !== sid) : [...prev, sid]);
+  }
 
   return (
     <div className="flex-1 overflow-y-auto bg-[#FBF3E9] p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-xl font-black text-[#6B4226] font-display">Equipo</h2>
-          <p className="text-sm text-[#A67850]">{STYLISTS.length} estilistas activos</p>
+          <p className="text-sm text-[#A67850]">{totalActive} estilistas activos</p>
         </div>
-        <Button onClick={() => { setShowInvite(!showInvite); setInviteSent(false); }} variant="primary" size="sm">
+        <Button onClick={() => { setShowInvite(!showInvite); if (showInvite) resetInviteForm(); }} variant="primary" size="sm">
           + Invitar
         </Button>
       </div>
 
+      {/* ── Invite form ── */}
       {showInvite && (
         <Card className="mb-5 border-2 border-[#E8734A]">
-          <h4 className="font-black text-[#6B4226] font-display mb-3">Invitar estilista</h4>
-          {inviteSent ? (
-            <div className="bg-[#EAF2E3] rounded-xl p-3 flex items-center gap-2">
-              <span className="text-[#4A7C59] text-lg">✓</span>
-              <p className="text-[#4A7C59] text-sm font-semibold">¡Invitación enviada a {inviteEmail}!</p>
+          <h4 className="font-black text-[#6B4226] font-display mb-4">Nuevo estilista</h4>
+          {inviteStep === 'success' ? (
+            <div>
+              <div className="bg-[#EAF2E3] rounded-2xl p-4 flex items-start gap-3 mb-4">
+                <span className="text-2xl mt-0.5">✅</span>
+                <div>
+                  <p className="text-[#4A7C59] font-black text-sm">¡{inviteName} fue dado de alta!</p>
+                  <p className="text-[#4A7C59] text-xs mt-0.5">Se envió un correo con credenciales temporales a {inviteEmail}.</p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="primary" size="sm" fullWidth onClick={() => { resetInviteForm(); }}>
+                  + Agregar otro
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => { setShowInvite(false); resetInviteForm(); }}>
+                  Cerrar
+                </Button>
+              </div>
             </div>
           ) : (
-            <>
-              <Input
-                label="Correo electrónico"
-                type="email"
-                value={inviteEmail}
-                onChange={setInviteEmail}
-                placeholder="estilista@barberia.com"
-                icon={<span>✉️</span>}
-              />
-              <div className="flex gap-2 mt-3">
-                <Button onClick={handleInvite} variant="primary" size="sm" fullWidth disabled={inviteLoading}>
-                  {inviteLoading ? '⏳ Enviando...' : 'Enviar invitación'}
+            <div className="flex flex-col gap-3">
+              <div className="grid grid-cols-2 gap-3">
+                <Input label="Nombre completo" value={inviteName} onChange={setInviteName} placeholder="ej. Pedro García" />
+                <Input label="Especialidad" value={inviteSpecialty} onChange={setInviteSpecialty} placeholder="ej. Colorimetría" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Input label="Correo electrónico" type="email" value={inviteEmail} onChange={setInviteEmail} placeholder="pedro@barberia.com" />
+                <Input label="Teléfono" value={invitePhone} onChange={setInvitePhone} placeholder="+34 600 000 000" />
+              </div>
+
+              {/* Services */}
+              <div>
+                <p className="text-xs font-black text-[#6B4226] mb-2">Servicios asignados</p>
+                <div className="flex flex-wrap gap-2">
+                  {SERVICES.map(svc => (
+                    <button
+                      key={svc.id}
+                      onClick={() => toggleInviteService(svc.id)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${inviteServiceIds.includes(svc.id) ? 'bg-[#E8734A] text-white' : 'bg-[#FBF3E9] text-[#A67850] hover:bg-[#F5E6D3]'}`}
+                    >
+                      {CATEGORY_CONFIG[svc.category].emoji} {svc.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Schedule */}
+              <div>
+                <p className="text-xs font-black text-[#6B4226] mb-2">Horario base semanal</p>
+                <div className="flex flex-col gap-1.5">
+                  {inviteSchedule.map((entry, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <div className="w-20 flex-shrink-0 text-xs font-semibold text-[#6B4226]">{entry.day}</div>
+                      <input
+                        value={entry.slots}
+                        onChange={e => {
+                          const updated = [...inviteSchedule];
+                          updated[i] = { ...updated[i], slots: e.target.value };
+                          setInviteSchedule(updated);
+                        }}
+                        className="flex-1 bg-[#FBF3E9] rounded-xl px-3 py-1.5 text-xs text-[#6B4226] font-medium border border-transparent focus:border-[#E8734A] focus:outline-none"
+                        placeholder="09:00 – 18:00 o Libre"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <Button onClick={handleInvite} variant="primary" size="sm" fullWidth disabled={inviteLoading || !inviteName.trim() || !inviteEmail.trim()}>
+                  {inviteLoading ? '⏳ Creando cuenta...' : 'Dar de alta y enviar invitación'}
                 </Button>
-                <Button onClick={() => setShowInvite(false)} variant="ghost" size="sm">
+                <Button onClick={() => { setShowInvite(false); resetInviteForm(); }} variant="ghost" size="sm">
                   Cancelar
                 </Button>
               </div>
-            </>
+            </div>
           )}
         </Card>
       )}
 
+      {/* ── Stylist cards ── */}
       <div className="flex flex-col gap-4">
-        {STYLISTS.map((stylist, idx) => {
-          const stats = stylistStats[idx];
+        {/* Base stylists */}
+        {visibleBase.map((stylist) => {
+          const stats = stylistStats[stylist.id] ?? defaultStats;
+          const d = getDisplay(stylist.id, stylist);
           return (
-            <Card key={stylist.id} padding={false}>
-              <div className="p-4">
-                <div className="flex items-center gap-3 mb-3">
-                  <MemphisStylistAvatar name={stylist.name} color={stylist.color} size={48} />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-black text-[#6B4226] font-display">{stylist.name}</div>
-                    <div className="text-sm text-[#A67850]">{stylist.specialty}</div>
-                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                      <div className="flex items-center gap-1">
-                        <span className="text-[#F2A950] text-xs">★</span>
-                        <span className="text-xs font-bold text-[#6B4226]">{stylist.rating}</span>
-                        <span className="text-[10px] text-[#C8A88A]">({stylist.reviewCount})</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10px] text-[#A67850]">
-                        <span>📱</span>
-                        <span className="font-medium">{STYLIST_PHONES[stylist.id]}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex gap-1 flex-shrink-0">
-                    <button
-                      onClick={() => setScheduleTarget(stylist.id)}
-                      className="w-8 h-8 rounded-xl bg-[#FBF3E9] hover:bg-[#F5E6D3] flex items-center justify-center text-sm transition-colors"
-                      title="Ver horario"
-                    >
-                      📅
-                    </button>
-                    <button className="w-8 h-8 rounded-xl bg-[#FBF3E9] hover:bg-[#F5E6D3] flex items-center justify-center text-sm transition-colors">
-                      ✏️
-                    </button>
-                    <button
-                      onClick={() => setDeleteTarget(stylist.id)}
-                      className="w-8 h-8 rounded-xl bg-[#FFF5F5] hover:bg-[#FFE8E8] flex items-center justify-center text-sm transition-colors"
-                      title="Dar de baja"
-                    >
-                      🗑
-                    </button>
-                  </div>
-                </div>
+            <StylistCard
+              key={stylist.id}
+              id={stylist.id}
+              color={stylist.color}
+              rating={stylist.rating}
+              reviewCount={stylist.reviewCount}
+              stats={stats}
+              displayName={d.name}
+              displaySpecialty={d.specialty}
+              displayPhone={d.phone}
+              displayServiceIds={d.serviceIds}
+              onSchedule={() => setScheduleTarget(stylist.id)}
+              onEdit={() => openEdit(stylist.id)}
+              onDelete={() => setDeleteTarget(stylist.id)}
+            />
+          );
+        })}
 
-                {/* Performance stats */}
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { label: 'Citas/mes', value: stats.appointments, color: '#E8734A' },
-                    { label: 'Ingresos', value: `$${stats.revenue}`, color: '#F2A950' },
-                    { label: 'Rating', value: `★${stats.rating}`, color: '#8B9D77' },
-                  ].map(stat => (
-                    <div key={stat.label} className="bg-[#FBF3E9] rounded-xl p-2 text-center">
-                      <div className="text-sm font-black" style={{ color: stat.color }}>{stat.value}</div>
-                      <div className="text-[9px] text-[#C8A88A] font-semibold">{stat.label}</div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Services */}
-                <div className="mt-3 pt-3 border-t border-[#F5E6D3]">
-                  <span className="text-xs font-semibold text-[#C8A88A]">Servicios: </span>
-                  {stylist.serviceIds.map(sid => {
-                    const s = getService(sid);
-                    return s ? (
-                      <span key={sid} className="text-xs text-[#A67850] mr-1">{s.name}</span>
-                    ) : null;
-                  })}
-                </div>
-              </div>
-            </Card>
+        {/* Added stylists */}
+        {visibleAdded.map((stylist) => {
+          const d = getDisplay(stylist.id, stylist);
+          return (
+            <StylistCard
+              key={stylist.id}
+              id={stylist.id}
+              color={stylist.color}
+              rating={stylist.rating}
+              reviewCount={stylist.reviewCount}
+              stats={defaultStats}
+              displayName={d.name}
+              displaySpecialty={d.specialty}
+              displayPhone={d.phone}
+              displayServiceIds={d.serviceIds}
+              onSchedule={() => setScheduleTarget(stylist.id)}
+              onEdit={() => openEdit(stylist.id)}
+              onDelete={() => setDeleteTarget(stylist.id)}
+              isNew
+            />
           );
         })}
       </div>
 
-      {/* Delete confirmation modal */}
-      {deleteTarget && deleteTargetStylist && (
+      {/* ── Edit modal ── */}
+      {editTarget && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end">
+          <div className="bg-white rounded-t-[32px] p-6 w-full max-h-[90vh] overflow-y-auto">
+            <div className="w-10 h-1 bg-[#EDD8BC] rounded-full mx-auto mb-5" />
+            <div className="flex items-center gap-3 mb-5">
+              <MemphisStylistAvatar name={editName || 'E'} color={editTargetColor} size={44} />
+              <div>
+                <h3 className="font-black text-[#6B4226] font-display text-lg">Editar estilista</h3>
+                <p className="text-sm text-[#A67850]">Modifica datos, servicios y horario</p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3 mb-5">
+              <Input label="Nombre completo" value={editName} onChange={setEditName} placeholder="Nombre" />
+              <Input label="Especialidad" value={editSpecialty} onChange={setEditSpecialty} placeholder="ej. Colorimetría avanzada" />
+              <Input label="Teléfono" value={editPhone} onChange={setEditPhone} placeholder="+34 600 000 000" />
+            </div>
+
+            <div className="mb-5">
+              <p className="text-xs font-black text-[#6B4226] mb-2">Servicios habilitados</p>
+              <div className="flex flex-wrap gap-2">
+                {SERVICES.map(svc => (
+                  <button
+                    key={svc.id}
+                    onClick={() => toggleEditService(svc.id)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${editServiceIds.includes(svc.id) ? 'bg-[#E8734A] text-white' : 'bg-[#FBF3E9] text-[#A67850] hover:bg-[#F5E6D3]'}`}
+                  >
+                    {CATEGORY_CONFIG[svc.category].emoji} {svc.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mb-5">
+              <p className="text-xs font-black text-[#6B4226] mb-2">Horario</p>
+              <div className="flex flex-col gap-2">
+                {editSchedule.map((entry, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <div className="w-24 flex-shrink-0 text-sm font-semibold text-[#6B4226]">{entry.day}</div>
+                    <input
+                      value={entry.slots}
+                      onChange={e => {
+                        const updated = [...editSchedule];
+                        updated[i] = { ...updated[i], slots: e.target.value };
+                        setEditSchedule(updated);
+                      }}
+                      className="flex-1 bg-[#FBF3E9] rounded-xl px-3 py-2 text-sm text-[#6B4226] font-medium border border-transparent focus:border-[#E8734A] focus:outline-none"
+                      placeholder="09:00 – 18:00 o Libre"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <Button variant="primary" size="md" fullWidth onClick={saveEdit}>Guardar cambios</Button>
+              <Button variant="ghost" size="md" onClick={() => setEditTarget(null)}>Cancelar</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit saved toast ── */}
+      {editSaved && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-[#4A7C59] text-white text-sm font-bold px-5 py-3 rounded-2xl shadow-xl">
+          Cambios guardados correctamente
+        </div>
+      )}
+
+      {/* ── Delete modal ── */}
+      {deleteTarget && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-5">
           <div className="bg-white rounded-[24px] p-6 w-full max-w-sm shadow-2xl">
             <div className="text-center mb-5">
@@ -407,7 +626,7 @@ export function AdminTeam({ onBack }: { onBack: () => void }) {
               </div>
               <h3 className="font-black text-[#6B4226] font-display text-xl mb-1">¿Dar de baja?</h3>
               <p className="text-[#A67850] text-sm">
-                ¿Confirmas que quieres dar de baja a <strong className="text-[#6B4226]">{deleteTargetStylist.name}</strong>?
+                ¿Confirmas que quieres retirar a <strong className="text-[#6B4226]">{deleteTargetName}</strong> del equipo activo?
               </p>
             </div>
 
@@ -415,21 +634,23 @@ export function AdminTeam({ onBack }: { onBack: () => void }) {
               <div className="bg-[#FEF5E4] border border-[#F2A950]/40 rounded-2xl p-3 mb-4 flex items-start gap-2">
                 <span className="text-lg flex-shrink-0">⚠️</span>
                 <p className="text-sm text-[#8B6914] font-medium">
-                  Este estilista tiene <strong>{pendingCount} citas futuras</strong> pendientes que deberán reasignarse antes de proceder.
+                  Tiene <strong>{pendingCount} citas pendientes</strong> que deberán reasignarse. Su agenda pública quedará deshabilitada.
                 </p>
               </div>
             )}
 
             <div className="flex flex-col gap-2">
-              {pendingCount > 0 ? (
-                <Button variant="secondary" size="md" fullWidth onClick={() => setDeleteTarget(null)}>
-                  Ver citas pendientes
-                </Button>
-              ) : (
-                <Button variant="danger" size="md" fullWidth onClick={() => setDeleteTarget(null)}>
-                  Confirmar baja
-                </Button>
-              )}
+              <Button
+                variant="danger"
+                size="md"
+                fullWidth
+                onClick={() => {
+                  setDeletedIds(prev => new Set([...prev, deleteTarget]));
+                  setDeleteTarget(null);
+                }}
+              >
+                Confirmar baja
+              </Button>
               <Button variant="ghost" size="md" fullWidth onClick={() => setDeleteTarget(null)}>
                 Cancelar
               </Button>
@@ -438,21 +659,20 @@ export function AdminTeam({ onBack }: { onBack: () => void }) {
         </div>
       )}
 
-      {/* Schedule drawer */}
-      {scheduleTarget && scheduleTargetStylist && (
+      {/* ── Schedule drawer ── */}
+      {scheduleTarget && scheduleTargetDisplay && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end">
           <div className="bg-white rounded-t-[32px] p-6 w-full max-h-[80vh] overflow-y-auto">
             <div className="w-10 h-1 bg-[#EDD8BC] rounded-full mx-auto mb-5" />
             <div className="flex items-center gap-3 mb-5">
-              <MemphisStylistAvatar name={scheduleTargetStylist.name} color={scheduleTargetStylist.color} size={44} />
+              <MemphisStylistAvatar name={scheduleTargetDisplay.name} color={scheduleTargetColor} size={44} />
               <div>
-                <h3 className="font-black text-[#6B4226] font-display text-lg">{scheduleTargetStylist.name}</h3>
+                <h3 className="font-black text-[#6B4226] font-display text-lg">{scheduleTargetDisplay.name}</h3>
                 <p className="text-sm text-[#A67850]">Horario disponible</p>
               </div>
             </div>
-
             <div className="flex flex-col gap-2 mb-5">
-              {(STYLIST_SCHEDULES[scheduleTarget] ?? []).map((entry, i) => (
+              {scheduleTargetDisplay.schedule.map((entry, i) => (
                 <div key={i} className={`flex items-center justify-between p-3 rounded-2xl ${entry.slots === 'Libre' ? 'bg-[#F5E6D3]' : 'bg-[#FBF3E9]'}`}>
                   <span className="font-semibold text-[#6B4226] text-sm">{entry.day}</span>
                   <span className={`text-sm font-bold ${entry.slots === 'Libre' ? 'text-[#C8A88A] line-through' : 'text-[#E8734A]'}`}>
@@ -461,19 +681,88 @@ export function AdminTeam({ onBack }: { onBack: () => void }) {
                 </div>
               ))}
             </div>
-
             <div className="flex gap-2">
-              <Button variant="secondary" size="md" fullWidth onClick={() => setScheduleTarget(null)}>
+              <Button variant="secondary" size="md" fullWidth onClick={() => { openEdit(scheduleTarget); setScheduleTarget(null); }}>
                 Editar horario
               </Button>
-              <Button variant="ghost" size="md" onClick={() => setScheduleTarget(null)}>
-                Cerrar
-              </Button>
+              <Button variant="ghost" size="md" onClick={() => setScheduleTarget(null)}>Cerrar</Button>
             </div>
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+function StylistCard({
+  id, color, rating, reviewCount, stats, displayName, displaySpecialty, displayPhone, displayServiceIds,
+  onSchedule, onEdit, onDelete, isNew,
+}: {
+  id: string; color: string; rating: number; reviewCount: number;
+  stats: { appointments: number; revenue: number; rating: number };
+  displayName: string; displaySpecialty: string; displayPhone: string; displayServiceIds: string[];
+  onSchedule: () => void; onEdit: () => void; onDelete: () => void; isNew?: boolean;
+}) {
+  return (
+    <Card padding={false}>
+      <div className="p-4">
+        <div className="flex items-center gap-3 mb-3">
+          <MemphisStylistAvatar name={displayName} color={color} size={48} />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <div className="font-black text-[#6B4226] font-display truncate">{displayName}</div>
+              {isNew && (
+                <span className="text-[10px] font-black bg-[#EAF2E3] text-[#4A7C59] px-2 py-0.5 rounded-full flex-shrink-0">NUEVO</span>
+              )}
+            </div>
+            <div className="text-sm text-[#A67850]">{displaySpecialty}</div>
+            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+              {rating > 0 && (
+                <div className="flex items-center gap-1">
+                  <span className="text-[#F2A950] text-xs">★</span>
+                  <span className="text-xs font-bold text-[#6B4226]">{rating}</span>
+                  <span className="text-[10px] text-[#C8A88A]">({reviewCount})</span>
+                </div>
+              )}
+              {displayPhone && (
+                <div className="flex items-center gap-1 text-[10px] text-[#A67850]">
+                  <span>📱</span>
+                  <span className="font-medium">{displayPhone}</span>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex gap-1 flex-shrink-0">
+            <button onClick={onSchedule} className="w-8 h-8 rounded-xl bg-[#FBF3E9] hover:bg-[#F5E6D3] flex items-center justify-center text-sm transition-colors" title="Ver horario">📅</button>
+            <button onClick={onEdit} className="w-8 h-8 rounded-xl bg-[#FBF3E9] hover:bg-[#F5E6D3] flex items-center justify-center text-sm transition-colors" title="Editar">✏️</button>
+            <button onClick={onDelete} className="w-8 h-8 rounded-xl bg-[#FFF5F5] hover:bg-[#FFE8E8] flex items-center justify-center text-sm transition-colors" title="Dar de baja">🗑</button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { label: 'Citas/mes', value: isNew ? '—' : stats.appointments, color: '#E8734A' },
+            { label: 'Ingresos', value: isNew ? '—' : `$${stats.revenue}`, color: '#F2A950' },
+            { label: 'Rating', value: isNew ? '—' : `★${stats.rating}`, color: '#8B9D77' },
+          ].map(stat => (
+            <div key={stat.label} className="bg-[#FBF3E9] rounded-xl p-2 text-center">
+              <div className="text-sm font-black" style={{ color: stat.color }}>{stat.value}</div>
+              <div className="text-[9px] text-[#C8A88A] font-semibold">{stat.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {displayServiceIds.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-[#F5E6D3]">
+            <span className="text-xs font-semibold text-[#C8A88A]">Servicios: </span>
+            {displayServiceIds.map(sid => {
+              const s = getService(sid);
+              return s ? <span key={sid} className="text-xs text-[#A67850] mr-1">{s.name}</span> : null;
+            })}
+          </div>
+        )}
+      </div>
+    </Card>
   );
 }
 
